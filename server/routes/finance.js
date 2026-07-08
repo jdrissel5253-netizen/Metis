@@ -198,4 +198,40 @@ router.get('/debts/:id/history', async (req, res) => {
   }
 });
 
+// Upcoming Cash
+router.get('/upcoming', async (req, res) => {
+  try {
+    const result = await pool.query(
+      'SELECT * FROM upcoming_cash WHERE user_id=$1 ORDER BY expected_date ASC',
+      [req.user.id]
+    );
+    res.json(result.rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/upcoming', async (req, res) => {
+  const { title, amount, expected_date } = req.body;
+  if (!title || !amount || !expected_date) return res.status(400).json({ error: 'Title, amount, and date required' });
+  try {
+    const result = await pool.query(
+      'INSERT INTO upcoming_cash (user_id, title, amount, expected_date) VALUES ($1,$2,$3,$4) RETURNING *',
+      [req.user.id, title, amount, expected_date]
+    );
+    res.status(201).json(result.rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.delete('/upcoming/:id', async (req, res) => {
+  try {
+    await pool.query('DELETE FROM upcoming_cash WHERE id=$1 AND user_id=$2', [req.params.id, req.user.id]);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 module.exports = router;

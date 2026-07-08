@@ -43,6 +43,13 @@ interface DebtHistory {
   recorded_at: string;
 }
 
+interface UpcomingCash {
+  id: number;
+  title: string;
+  amount: number;
+  expected_date: string;
+}
+
 const DEBT_TYPES = ['Credit Card', 'Student Loan', 'Car Loan', 'Personal Loan', 'Medical', 'Other'];
 
 export default function Finance() {
@@ -59,16 +66,21 @@ export default function Finance() {
   const [updateNote, setUpdateNote] = useState('');
   const [newGoal, setNewGoal] = useState({ title: '', description: '', target_amount: '', current_amount: '' });
   const [newDebt, setNewDebt] = useState({ title: '', debt_type: 'Credit Card', original_amount: '', current_balance: '', interest_rate: '', minimum_payment: '' });
+  const [upcoming, setUpcoming] = useState<UpcomingCash[]>([]);
+  const [showAddUpcoming, setShowAddUpcoming] = useState(false);
+  const [newUpcoming, setNewUpcoming] = useState({ title: '', amount: '', expected_date: '' });
 
   const fetchAll = async () => {
-    const [g, p, d] = await Promise.all([
+    const [g, p, d, u] = await Promise.all([
       api.get('/finance/goals'),
       api.get('/finance/projection'),
       api.get('/finance/debts'),
+      api.get('/finance/upcoming'),
     ]);
     setGoals(g.data);
     setProjection(p.data);
     setDebts(d.data);
+    setUpcoming(u.data);
 
     const hist: Record<number, HistoryEntry[]> = {};
     await Promise.all(g.data.map(async (goal: FinancialGoal) => {
@@ -151,6 +163,23 @@ export default function Finance() {
     fetchAll();
   };
 
+  const handleAddUpcoming = async (e: React.FormEvent) => {
+    e.preventDefault();
+    await api.post('/finance/upcoming', {
+      title: newUpcoming.title,
+      amount: parseFloat(newUpcoming.amount),
+      expected_date: newUpcoming.expected_date,
+    });
+    setShowAddUpcoming(false);
+    setNewUpcoming({ title: '', amount: '', expected_date: '' });
+    fetchAll();
+  };
+
+  const handleDeleteUpcoming = async (id: number) => {
+    await api.delete(`/finance/upcoming/${id}`);
+    fetchAll();
+  };
+
   const getProjectedDate = (goal: FinancialGoal) => {
     const remaining = parseFloat(String(goal.target_amount)) - parseFloat(String(goal.current_amount));
     if (remaining <= 0) return null;
@@ -184,7 +213,9 @@ export default function Finance() {
 
   const totalSavings = goals.reduce((s, g) => s + parseFloat(String(g.current_amount)), 0);
   const totalDebt = debts.reduce((s, d) => s + parseFloat(String(d.current_balance)), 0);
+  const totalUpcoming = upcoming.reduce((s, u) => s + parseFloat(String(u.amount)), 0);
   const netPosition = totalSavings - totalDebt;
+  const adjustedNet = netPosition + totalUpcoming;
 
   return (
     <Page>
@@ -220,7 +251,7 @@ export default function Finance() {
       )}
 
       {(goals.length > 0 || debts.length > 0) && (
-        <NetBanner positive={netPosition >= 0}>
+        <NetBanner positive={adjustedNet >= 0}>
           <NetBlock>
             <NetLabel>Total Savings</NetLabel>
             <NetValue>${totalSavings.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</NetValue>
@@ -230,11 +261,20 @@ export default function Finance() {
             <NetLabel>Total Debt</NetLabel>
             <NetValue debt>${totalDebt.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</NetValue>
           </NetBlock>
+          {totalUpcoming > 0 && (
+            <>
+              <NetOp>+</NetOp>
+              <NetBlock>
+                <NetLabel>Upcoming Cash</NetLabel>
+                <NetValue upcoming>${totalUpcoming.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</NetValue>
+              </NetBlock>
+            </>
+          )}
           <NetOp>=</NetOp>
           <NetBlock>
-            <NetLabel>Net Position</NetLabel>
-            <NetValue net positive={netPosition >= 0}>
-              {netPosition >= 0 ? '+' : ''}${netPosition.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            <NetLabel>{totalUpcoming > 0 ? 'Adjusted Net' : 'Net Position'}</NetLabel>
+            <NetValue net positive={adjustedNet >= 0}>
+              {adjustedNet >= 0 ? '+' : ''}${adjustedNet.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </NetValue>
           </NetBlock>
         </NetBanner>
@@ -334,6 +374,34 @@ export default function Finance() {
           );
         })}
       </GoalList>
+
+      <SectionHeader>
+        <SectionTitle>Upcoming Cash</SectionTitle>
+        <AddBtn onClick={() => setShowAddUpcoming(true)}>+ Add</AddBtn>
+      </SectionHeader>
+
+      {upcoming.length === 0 && (
+        <Empty style={{ paddingTop: 24, paddingBottom: 24 }}>No upcoming cash logged. Add expected income to factor it into your net position.</Empty>
+      )}
+
+      {upcoming.length > 0 && (
+        <UpcomingList>
+          {upcoming.map(u => (
+            <UpcomingRow key={u.id}>
+              <UpcomingInfo>
+                <UpcomingTitle>{u.title}</UpcomingTitle>
+                <UpcomingDate>{format(new Date(u.expected_date), 'MMM d, yyyy')}</UpcomingDate>
+              </UpcomingInfo>
+              <UpcomingAmount>+${parseFloat(String(u.amount)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</UpcomingAmount>
+              <SmallBtn danger onClick={() => handleDeleteUpcoming(u.id)}>✕</SmallBtn>
+            </UpcomingRow>
+          ))}
+          <UpcomingTotal>
+            <span>Total Expected</span>
+            <span>${totalUpcoming.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+          </UpcomingTotal>
+        </UpcomingList>
+      )}
 
       <SectionHeader>
         <SectionTitle>Debt Payoff</SectionTitle>
@@ -475,6 +543,32 @@ export default function Finance() {
         </Modal>
       )}
 
+      {showAddUpcoming && (
+        <Modal onClick={() => setShowAddUpcoming(false)}>
+          <ModalBox onClick={e => e.stopPropagation()}>
+            <ModalTitle>Add Upcoming Cash</ModalTitle>
+            <Form onSubmit={handleAddUpcoming}>
+              <Label>Description</Label>
+              <Input placeholder="e.g. July paycheck, Tax refund" value={newUpcoming.title} onChange={e => setNewUpcoming(f => ({ ...f, title: e.target.value }))} required autoFocus />
+              <Row>
+                <div style={{ flex: 1 }}>
+                  <Label>Amount ($)</Label>
+                  <Input type="number" step="0.01" placeholder="2500" value={newUpcoming.amount} onChange={e => setNewUpcoming(f => ({ ...f, amount: e.target.value }))} required />
+                </div>
+                <div style={{ flex: 1 }}>
+                  <Label>Expected Date</Label>
+                  <Input type="date" value={newUpcoming.expected_date} onChange={e => setNewUpcoming(f => ({ ...f, expected_date: e.target.value }))} required />
+                </div>
+              </Row>
+              <ModalActions>
+                <CancelBtn type="button" onClick={() => setShowAddUpcoming(false)}>Cancel</CancelBtn>
+                <SubmitBtn type="submit">Add</SubmitBtn>
+              </ModalActions>
+            </Form>
+          </ModalBox>
+        </Modal>
+      )}
+
       {showUpdate && (
         <Modal onClick={() => setShowUpdate(null)}>
           <ModalBox onClick={e => e.stopPropagation()}>
@@ -610,10 +704,6 @@ const NetBanner = styled.div<{ positive?: boolean }>`
 `;
 const NetBlock = styled.div`display: flex; flex-direction: column; align-items: center;`;
 const NetLabel = styled.p`font-size: 0.72rem; color: #8C7050; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 4px;`;
-const NetValue = styled.p<{ muted?: boolean; warn?: boolean; debt?: boolean; net?: boolean; positive?: boolean }>`
-  font-family: 'DM Serif Display', serif; font-size: 1.5rem;
-  color: ${p => p.net ? (p.positive ? '#FBBF24' : '#F07050') : p.debt ? '#F07050' : '#F5ECD8'};
-`;
 const NetOp = styled.span`font-size: 1.4rem; color: #6B5038; font-family: 'DM Serif Display', serif; padding-bottom: 2px;`;
 
 const SectionHeader = styled.div`display: flex; justify-content: space-between; align-items: center; margin: 36px 0 20px;`;
@@ -630,6 +720,32 @@ const DebtTypeBadge = styled.span`
 const DebtProgressFill = styled.div`
   height: 100%; background: linear-gradient(90deg, #F07050, #E85030);
   border-radius: 6px; transition: width 0.5s ease; position: relative;
+`;
+
+const UpcomingList = styled.div`
+  background: #261A0C; border: 1px solid #3E2A14; border-radius: 12px;
+  overflow: hidden; margin-bottom: 8px;
+`;
+const UpcomingRow = styled.div`
+  display: flex; align-items: center; gap: 12px;
+  padding: 14px 20px; border-bottom: 1px solid #3E2A14;
+  &:last-child { border-bottom: none; }
+`;
+const UpcomingInfo = styled.div`flex: 1;`;
+const UpcomingTitle = styled.p`font-size: 0.9rem; color: #F5ECD8; font-weight: 500;`;
+const UpcomingDate = styled.p`font-size: 0.75rem; color: #8C7050; margin-top: 2px;`;
+const UpcomingAmount = styled.span`
+  font-family: 'DM Serif Display', serif; font-size: 1.2rem; color: #6BCB8B; white-space: nowrap;
+`;
+const UpcomingTotal = styled.div`
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 12px 20px; background: rgba(107,203,139,0.06);
+  font-size: 0.8rem; color: #6BCB8B; font-weight: 600; letter-spacing: 0.03em;
+`;
+
+const NetValue = styled.p<{ muted?: boolean; warn?: boolean; debt?: boolean; upcoming?: boolean; net?: boolean; positive?: boolean }>`
+  font-family: 'DM Serif Display', serif; font-size: 1.5rem;
+  color: ${p => p.net ? (p.positive ? '#FBBF24' : '#F07050') : p.debt ? '#F07050' : p.upcoming ? '#6BCB8B' : '#F5ECD8'};
 `;
 
 const Select = styled.select`width: 100%; background: #1C1208; border: 1px solid #3E2A14; border-radius: 8px; padding: 10px 14px; color: #F5ECD8; outline: none; &:focus { border-color: #FBBF24; } option { background: #1C1208; }`;

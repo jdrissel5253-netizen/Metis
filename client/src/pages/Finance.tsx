@@ -466,16 +466,6 @@ export default function Finance() {
                   <Input type="number" step="0.01" placeholder="8500" value={newDebt.current_balance} onChange={e => setNewDebt(f => ({ ...f, current_balance: e.target.value }))} required />
                 </div>
               </Row>
-              <Row>
-                <div style={{ flex: 1 }}>
-                  <Label>Interest Rate (%)</Label>
-                  <Input type="number" step="0.01" placeholder="19.99" value={newDebt.interest_rate} onChange={e => setNewDebt(f => ({ ...f, interest_rate: e.target.value }))} />
-                </div>
-                <div style={{ flex: 1 }}>
-                  <Label>Min. Monthly Payment ($)</Label>
-                  <Input type="number" step="0.01" placeholder="200" value={newDebt.minimum_payment} onChange={e => setNewDebt(f => ({ ...f, minimum_payment: e.target.value }))} />
-                </div>
-              </Row>
               <ModalActions>
                 <CancelBtn type="button" onClick={() => setShowAddDebt(false)}>Cancel</CancelBtn>
                 <SubmitBtn type="submit">Add Debt</SubmitBtn>

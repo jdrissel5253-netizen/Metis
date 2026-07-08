@@ -379,24 +379,6 @@ export default function Finance() {
                   <AmountLabel>Original</AmountLabel>
                   <AmountValue muted>${original.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</AmountValue>
                 </AmountBlock>
-                {parseFloat(String(debt.interest_rate)) > 0 && (
-                  <>
-                    <AmountDivider />
-                    <AmountBlock>
-                      <AmountLabel>Interest Rate</AmountLabel>
-                      <AmountValue muted>{parseFloat(String(debt.interest_rate)).toFixed(2)}%</AmountValue>
-                    </AmountBlock>
-                  </>
-                )}
-                {parseFloat(String(debt.minimum_payment)) > 0 && (
-                  <>
-                    <AmountDivider />
-                    <AmountBlock>
-                      <AmountLabel>Min. Payment</AmountLabel>
-                      <AmountValue muted>${parseFloat(String(debt.minimum_payment)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</AmountValue>
-                    </AmountBlock>
-                  </>
-                )}
               </AmountRow>
 
               <ProgressSection>

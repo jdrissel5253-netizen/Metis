@@ -11,6 +11,7 @@ const Goals = lazy(() => import('./pages/Goals'));
 const Money = lazy(() => import('./pages/Money'));
 const Habits = lazy(() => import('./pages/Habits'));
 const Tasks = lazy(() => import('./pages/Tasks'));
+const Finance = lazy(() => import('./pages/Finance'));
 
 function ProtectedLayout() {
   const { user } = useAuth();
@@ -49,6 +50,7 @@ export default function App() {
               <Route path="/money" element={<Money />} />
               <Route path="/habits" element={<Habits />} />
               <Route path="/tasks" element={<Tasks />} />
+              <Route path="/finance" element={<Finance />} />
             </Route>
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>

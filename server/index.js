@@ -12,6 +12,7 @@ app.use('/api/goals', require('./routes/goals'));
 app.use('/api/money', require('./routes/money'));
 app.use('/api/habits', require('./routes/habits'));
 app.use('/api/tasks', require('./routes/tasks'));
+app.use('/api/finance', require('./routes/finance'));
 
 app.get('/api/health', (_, res) => res.json({ status: 'ok' }));
 

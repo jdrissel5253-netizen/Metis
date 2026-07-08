@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import styled from 'styled-components';
 import { format } from 'date-fns';
 import api from '../api';
@@ -28,6 +28,8 @@ export default function Goals() {
   const [goals, setGoals] = useState<Goal[]>([]);
   const [tasks, setTasks] = useState<Record<number, Task[]>>({});
   const [expanded, setExpanded] = useState<Set<number>>(new Set());
+  const [collapsed, setCollapsed] = useState<Set<number>>(new Set());
+  const [orderedIds, setOrderedIds] = useState<number[]>([]);
   const [showForm, setShowForm] = useState(false);
   const [editGoal, setEditGoal] = useState<Goal | null>(null);
   const [updateTarget, setUpdateTarget] = useState<Goal | null>(null);
@@ -38,11 +40,22 @@ export default function Goals() {
   const [form, setForm] = useState({
     title: '', description: '', category: '', target_date: '', progress: 0, parent_id: '' as string | number
   });
+  const dragId = useRef<number | null>(null);
+  const [dragOverId, setDragOverId] = useState<number | null>(null);
+  const initDone = useRef(false);
 
   const fetchGoals = async () => {
     const { data } = await api.get('/goals');
     setGoals(data);
-    // fetch tasks for all goals
+
+    // maintain drag order; append new ids at the end
+    setOrderedIds(prev => {
+      const topIds = data.filter((g: Goal) => !g.parent_id).map((g: Goal) => g.id as number);
+      const kept = prev.filter((id: number) => topIds.includes(id));
+      const added = topIds.filter((id: number) => !prev.includes(id));
+      return [...kept, ...added];
+    });
+
     const taskMap: Record<number, Task[]> = {};
     await Promise.all(data.map(async (g: Goal) => {
       const res = await api.get(`/goals/${g.id}/tasks`);
@@ -53,6 +66,14 @@ export default function Goals() {
 
   useEffect(() => { fetchGoals(); }, []);
 
+  // Collapse all top-level goals on first load
+  useEffect(() => {
+    if (!initDone.current && goals.length > 0) {
+      setCollapsed(new Set(goals.filter(g => !g.parent_id).map(g => g.id)));
+      initDone.current = true;
+    }
+  }, [goals]);
+
   const toggleExpand = (id: number) => {
     setExpanded(prev => {
       const next = new Set(prev);
@@ -60,6 +81,41 @@ export default function Goals() {
       return next;
     });
   };
+
+  const toggleCollapse = (id: number) => {
+    setCollapsed(prev => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  };
+
+  const collapseAll = () => setCollapsed(new Set(goals.filter(g => !g.parent_id).map(g => g.id)));
+  const expandAll = () => setCollapsed(new Set());
+
+  // Drag handlers
+  const handleDragStart = (id: number) => { dragId.current = id; };
+  const handleDragOver = (e: React.DragEvent, id: number) => {
+    e.preventDefault();
+    if (dragId.current !== id) setDragOverId(id);
+  };
+  const handleDrop = async (e: React.DragEvent, targetId: number) => {
+    e.preventDefault();
+    const sourceId = dragId.current;
+    if (sourceId == null || sourceId === targetId) { setDragOverId(null); return; }
+
+    const newOrder = [...orderedIds];
+    const fromIdx = newOrder.indexOf(sourceId);
+    const toIdx = newOrder.indexOf(targetId);
+    newOrder.splice(fromIdx, 1);
+    newOrder.splice(toIdx, 0, sourceId);
+    setOrderedIds(newOrder);
+    setDragOverId(null);
+    dragId.current = null;
+
+    await api.post('/goals/reorder', { ids: newOrder });
+  };
+  const handleDragEnd = () => { dragId.current = null; setDragOverId(null); };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -136,8 +192,8 @@ export default function Goals() {
     return Math.round(children.reduce((s, g) => s + g.progress, 0) / children.length);
   };
 
-  const topLevel = goals.filter(g => !g.parent_id);
-  const filtered = filter === 'all' ? topLevel : topLevel.filter(g => g.status === filter);
+  const allTopLevel = orderedIds.map(id => goals.find(g => g.id === id)).filter(Boolean) as Goal[];
+  const filtered = filter === 'all' ? allTopLevel : allTopLevel.filter(g => g.status === filter);
   const parentGoals = goals.filter(g => !g.parent_id);
 
   return (
@@ -147,7 +203,13 @@ export default function Goals() {
           <PageTitle>Goals</PageTitle>
           <PageSub>Long-term destinations and the milestones that get you there</PageSub>
         </div>
-        <AddBtn onClick={() => { closeForm(); setShowForm(true); }}>+ New Goal</AddBtn>
+        <HeaderRight>
+          <CollapseControls>
+            <CollapseLink onClick={collapseAll}>Collapse all</CollapseLink>
+            <CollapseLink onClick={expandAll}>Expand all</CollapseLink>
+          </CollapseControls>
+          <AddBtn onClick={() => { closeForm(); setShowForm(true); }}>+ New Goal</AddBtn>
+        </HeaderRight>
       </PageHeader>
 
       <FilterRow>
@@ -168,18 +230,42 @@ export default function Goals() {
           const displayProgress = childProgress !== null ? childProgress : parent.progress;
           const parentTasks = tasks[parent.id] || [];
           const isOpen = expanded.has(parent.id);
+          const isCollapsed = collapsed.has(parent.id);
+          const isDragOver = dragOverId === parent.id;
 
           return (
-            <ParentCard key={parent.id} status={parent.status}>
-              <ParentTop>
-                <ParentMeta>
-                  <CategoryTag>{parent.category || 'Goal'}</CategoryTag>
-                  <StatusBadge status={parent.status}>{parent.status}</StatusBadge>
-                  {children.length > 0 && (
-                    <MilestoneBadge>{children.length} milestone{children.length !== 1 ? 's' : ''}</MilestoneBadge>
-                  )}
-                </ParentMeta>
-                <ParentActions>
+            <ParentCard
+              key={parent.id}
+              status={parent.status}
+              isDragOver={isDragOver}
+              draggable
+              onDragStart={() => handleDragStart(parent.id)}
+              onDragOver={e => handleDragOver(e, parent.id)}
+              onDrop={e => handleDrop(e, parent.id)}
+              onDragEnd={handleDragEnd}
+            >
+              <CardHeader onClick={() => toggleCollapse(parent.id)}>
+                <DragHandle onClick={e => e.stopPropagation()}>⠿</DragHandle>
+                <CollapseArrow>{isCollapsed ? '▸' : '▾'}</CollapseArrow>
+                <HeaderMain>
+                  <HeaderTitleRow>
+                    <ParentTitle>{parent.title}</ParentTitle>
+                    <ParentMeta>
+                      <CategoryTag>{parent.category || 'Goal'}</CategoryTag>
+                      <StatusBadge status={parent.status}>{parent.status}</StatusBadge>
+                      {children.length > 0 && (
+                        <MilestoneBadge>{children.length} milestone{children.length !== 1 ? 's' : ''}</MilestoneBadge>
+                      )}
+                    </ParentMeta>
+                  </HeaderTitleRow>
+                  <CollapsedProgress>
+                    <ProgressBar>
+                      <ProgressFill style={{ width: `${displayProgress}%` }} />
+                    </ProgressBar>
+                    <ProgressPct>{displayProgress}%</ProgressPct>
+                  </CollapsedProgress>
+                </HeaderMain>
+                <ParentActions onClick={e => e.stopPropagation()}>
                   <SmallBtn onClick={() => { setUpdateTarget(parent); setUpdateProgress(parent.progress); }}>Update</SmallBtn>
                   <SmallBtn onClick={() => handleEdit(parent)}>Edit</SmallBtn>
                   {parent.status === 'active'
@@ -188,132 +274,124 @@ export default function Goals() {
                   }
                   <SmallBtn danger onClick={() => handleDelete(parent.id)}>✕</SmallBtn>
                 </ParentActions>
-              </ParentTop>
+              </CardHeader>
 
-              <ParentTitle>{parent.title}</ParentTitle>
-              {parent.description && <ParentDesc>{parent.description}</ParentDesc>}
+              {!isCollapsed && (
+                <CardBody>
+                  {parent.description && <ParentDesc>{parent.description}</ParentDesc>}
 
-              <ProgressRow>
-                <ProgressBar>
-                  <ProgressFill style={{ width: `${displayProgress}%` }} />
-                </ProgressBar>
-                <ProgressPct>{displayProgress}%</ProgressPct>
-                {childProgress !== null && <ProgressNote>avg of milestones</ProgressNote>}
-              </ProgressRow>
-
-              {parent.target_date && (
-                <DueDate>Target: {format(new Date(parent.target_date), 'MMM d, yyyy')}</DueDate>
-              )}
-
-              {/* Tasks */}
-              <TaskSection>
-                <TaskList>
-                  {parentTasks.map(task => (
-                    <TaskRow key={task.id}>
-                      <TaskCheck checked={task.completed} onClick={() => handleToggleTask(task)} />
-                      <TaskTitle done={task.completed}>{task.title}</TaskTitle>
-                      <TaskDelete onClick={() => handleDeleteTask(task)}>✕</TaskDelete>
-                    </TaskRow>
-                  ))}
-                </TaskList>
-                <TaskInputRow>
-                  <TaskInput
-                    placeholder="Add a task..."
-                    value={newTaskText[parent.id] || ''}
-                    onChange={e => setNewTaskText(prev => ({ ...prev, [parent.id]: e.target.value }))}
-                    onKeyDown={e => e.key === 'Enter' && handleAddTask(parent.id)}
-                  />
-                  <TaskAddBtn onClick={() => handleAddTask(parent.id)}>+</TaskAddBtn>
-                </TaskInputRow>
-              </TaskSection>
-
-              {/* Milestones */}
-              {children.length > 0 && (
-                <>
-                  <MilestoneToggle onClick={() => toggleExpand(parent.id)}>
-                    <span>{isOpen ? '▾' : '▸'} Milestones ({children.length})</span>
-                    {!isOpen && <MilestonePreview>{children.slice(0, 2).map(c => c.title).join(' · ')}{children.length > 2 ? '...' : ''}</MilestonePreview>}
-                  </MilestoneToggle>
-
-                  {isOpen && (
-                    <MilestoneList>
-                      {filteredChildren.map(child => {
-                        const childTasks = tasks[child.id] || [];
-                        return (
-                          <MilestoneCard key={child.id} status={child.status}>
-                            <MilestoneMeta>
-                              <CategoryTag>{child.category || 'Milestone'}</CategoryTag>
-                              <StatusBadge status={child.status}>{child.status}</StatusBadge>
-                            </MilestoneMeta>
-                            <MilestoneHeader>
-                              <MilestoneTitle>{child.title}</MilestoneTitle>
-                              <MilestoneActions>
-                                <SmallBtn onClick={() => { setUpdateTarget(child); setUpdateProgress(child.progress); }}>Update</SmallBtn>
-                                <SmallBtn onClick={() => handleEdit(child)}>Edit</SmallBtn>
-                                {child.status === 'active'
-                                  ? <SmallBtn accent onClick={() => handleStatusChange(child, 'completed')}>Complete</SmallBtn>
-                                  : <SmallBtn onClick={() => handleStatusChange(child, 'active')}>Reopen</SmallBtn>
-                                }
-                                <SmallBtn danger onClick={() => handleDelete(child.id)}>✕</SmallBtn>
-                              </MilestoneActions>
-                            </MilestoneHeader>
-                            {child.description && <MilestoneDesc>{child.description}</MilestoneDesc>}
-                            <ProgressRow>
-                              <ProgressBar>
-                                <ProgressFill style={{ width: `${child.progress}%` }} />
-                              </ProgressBar>
-                              <ProgressPct>{child.progress}%</ProgressPct>
-                            </ProgressRow>
-                            {child.target_date && <DueDate>Target: {format(new Date(child.target_date), 'MMM d, yyyy')}</DueDate>}
-
-                            <TaskSection>
-                              <TaskList>
-                                {childTasks.map(task => (
-                                  <TaskRow key={task.id}>
-                                    <TaskCheck checked={task.completed} onClick={() => handleToggleTask(task)} />
-                                    <TaskTitle done={task.completed}>{task.title}</TaskTitle>
-                                    <TaskDelete onClick={() => handleDeleteTask(task)}>✕</TaskDelete>
-                                  </TaskRow>
-                                ))}
-                              </TaskList>
-                              <TaskInputRow>
-                                <TaskInput
-                                  placeholder="Add a task..."
-                                  value={newTaskText[child.id] || ''}
-                                  onChange={e => setNewTaskText(prev => ({ ...prev, [child.id]: e.target.value }))}
-                                  onKeyDown={e => e.key === 'Enter' && handleAddTask(child.id)}
-                                />
-                                <TaskAddBtn onClick={() => handleAddTask(child.id)}>+</TaskAddBtn>
-                              </TaskInputRow>
-                            </TaskSection>
-                          </MilestoneCard>
-                        );
-                      })}
-                      <AddMilestoneBtn onClick={() => {
-                        setForm({ title: '', description: '', category: parent.category || '', target_date: '', progress: 0, parent_id: parent.id });
-                        setShowForm(true);
-                      }}>
-                        + Add milestone to this goal
-                      </AddMilestoneBtn>
-                    </MilestoneList>
+                  {parent.target_date && (
+                    <DueDate>Target: {format(new Date(parent.target_date), 'MMM d, yyyy')}</DueDate>
                   )}
-                </>
-              )}
 
-              {children.length === 0 && (
-                <AddMilestoneBtn onClick={() => {
-                  setForm({ title: '', description: '', category: parent.category || '', target_date: '', progress: 0, parent_id: parent.id });
-                  setShowForm(true);
-                }}>
-                  + Add a milestone
-                </AddMilestoneBtn>
+                  <TaskSection>
+                    <TaskList>
+                      {parentTasks.map(task => (
+                        <TaskRow key={task.id}>
+                          <TaskCheck checked={task.completed} onClick={() => handleToggleTask(task)} />
+                          <TaskTitle done={task.completed}>{task.title}</TaskTitle>
+                          <TaskDelete onClick={() => handleDeleteTask(task)}>✕</TaskDelete>
+                        </TaskRow>
+                      ))}
+                    </TaskList>
+                    <TaskInputRow>
+                      <TaskInput
+                        placeholder="Add a task..."
+                        value={newTaskText[parent.id] || ''}
+                        onChange={e => setNewTaskText(prev => ({ ...prev, [parent.id]: e.target.value }))}
+                        onKeyDown={e => e.key === 'Enter' && handleAddTask(parent.id)}
+                      />
+                      <TaskAddBtn onClick={() => handleAddTask(parent.id)}>+</TaskAddBtn>
+                    </TaskInputRow>
+                  </TaskSection>
+
+                  {children.length > 0 && (
+                    <>
+                      <MilestoneToggle onClick={() => toggleExpand(parent.id)}>
+                        <span>{isOpen ? '▾' : '▸'} Milestones ({children.length})</span>
+                        {!isOpen && <MilestonePreview>{children.slice(0, 2).map(c => c.title).join(' · ')}{children.length > 2 ? '...' : ''}</MilestonePreview>}
+                      </MilestoneToggle>
+
+                      {isOpen && (
+                        <MilestoneList>
+                          {filteredChildren.map(child => {
+                            const childTasks = tasks[child.id] || [];
+                            return (
+                              <MilestoneCard key={child.id} status={child.status}>
+                                <MilestoneMeta>
+                                  <CategoryTag>{child.category || 'Milestone'}</CategoryTag>
+                                  <StatusBadge status={child.status}>{child.status}</StatusBadge>
+                                </MilestoneMeta>
+                                <MilestoneHeader>
+                                  <MilestoneTitle>{child.title}</MilestoneTitle>
+                                  <MilestoneActions>
+                                    <SmallBtn onClick={() => { setUpdateTarget(child); setUpdateProgress(child.progress); }}>Update</SmallBtn>
+                                    <SmallBtn onClick={() => handleEdit(child)}>Edit</SmallBtn>
+                                    {child.status === 'active'
+                                      ? <SmallBtn accent onClick={() => handleStatusChange(child, 'completed')}>Complete</SmallBtn>
+                                      : <SmallBtn onClick={() => handleStatusChange(child, 'active')}>Reopen</SmallBtn>
+                                    }
+                                    <SmallBtn danger onClick={() => handleDelete(child.id)}>✕</SmallBtn>
+                                  </MilestoneActions>
+                                </MilestoneHeader>
+                                {child.description && <MilestoneDesc>{child.description}</MilestoneDesc>}
+                                <ProgressRow>
+                                  <ProgressBar>
+                                    <ProgressFill style={{ width: `${child.progress}%` }} />
+                                  </ProgressBar>
+                                  <ProgressPct>{child.progress}%</ProgressPct>
+                                </ProgressRow>
+                                {child.target_date && <DueDate>Target: {format(new Date(child.target_date), 'MMM d, yyyy')}</DueDate>}
+
+                                <TaskSection>
+                                  <TaskList>
+                                    {childTasks.map(task => (
+                                      <TaskRow key={task.id}>
+                                        <TaskCheck checked={task.completed} onClick={() => handleToggleTask(task)} />
+                                        <TaskTitle done={task.completed}>{task.title}</TaskTitle>
+                                        <TaskDelete onClick={() => handleDeleteTask(task)}>✕</TaskDelete>
+                                      </TaskRow>
+                                    ))}
+                                  </TaskList>
+                                  <TaskInputRow>
+                                    <TaskInput
+                                      placeholder="Add a task..."
+                                      value={newTaskText[child.id] || ''}
+                                      onChange={e => setNewTaskText(prev => ({ ...prev, [child.id]: e.target.value }))}
+                                      onKeyDown={e => e.key === 'Enter' && handleAddTask(child.id)}
+                                    />
+                                    <TaskAddBtn onClick={() => handleAddTask(child.id)}>+</TaskAddBtn>
+                                  </TaskInputRow>
+                                </TaskSection>
+                              </MilestoneCard>
+                            );
+                          })}
+                          <AddMilestoneBtn onClick={() => {
+                            setForm({ title: '', description: '', category: parent.category || '', target_date: '', progress: 0, parent_id: parent.id });
+                            setShowForm(true);
+                          }}>
+                            + Add milestone to this goal
+                          </AddMilestoneBtn>
+                        </MilestoneList>
+                      )}
+                    </>
+                  )}
+
+                  {children.length === 0 && (
+                    <AddMilestoneBtn onClick={() => {
+                      setForm({ title: '', description: '', category: parent.category || '', target_date: '', progress: 0, parent_id: parent.id });
+                      setShowForm(true);
+                    }}>
+                      + Add a milestone
+                    </AddMilestoneBtn>
+                  )}
+                </CardBody>
               )}
             </ParentCard>
           );
         })}
       </GoalList>
 
-      {/* New / Edit Goal Modal */}
       {showForm && (
         <Modal onClick={closeForm}>
           <ModalBox onClick={e => e.stopPropagation()}>
@@ -354,7 +432,6 @@ export default function Goals() {
         </Modal>
       )}
 
-      {/* Update Progress Modal */}
       {updateTarget && (
         <Modal onClick={() => setUpdateTarget(null)}>
           <ModalBox onClick={e => e.stopPropagation()}>
@@ -382,26 +459,59 @@ const Page = styled.div`padding: 40px 48px; max-width: 900px; @media (max-width:
 const PageHeader = styled.div`display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 28px;`;
 const PageTitle = styled.h1`font-family: 'DM Serif Display', serif; font-size: 1.8rem; font-weight: 400; color: #F5ECD8;`;
 const PageSub = styled.p`color: #8C7050; font-size: 0.85rem; margin-top: 2px;`;
+const HeaderRight = styled.div`display: flex; flex-direction: column; align-items: flex-end; gap: 8px;`;
+const CollapseControls = styled.div`display: flex; gap: 12px;`;
+const CollapseLink = styled.button`background: none; border: none; color: #6B5038; font-size: 0.78rem; padding: 0; text-decoration: underline; text-underline-offset: 2px; &:hover { color: #C4A870; }`;
 const AddBtn = styled.button`background: #FBBF24; color: #1C1208; border: none; border-radius: 8px; padding: 10px 18px; font-weight: 600; font-size: 0.88rem; white-space: nowrap; &:hover { opacity: 0.9; }`;
 const FilterRow = styled.div`display: flex; gap: 8px; margin-bottom: 28px;`;
 const FilterBtn = styled.button<{ active: boolean }>`padding: 6px 14px; border-radius: 20px; border: 1px solid ${p => p.active ? '#FBBF24' : '#3E2A14'}; background: ${p => p.active ? 'rgba(251,191,36,0.12)' : 'transparent'}; color: ${p => p.active ? '#FBBF24' : '#8C7050'}; font-size: 0.82rem; &:hover { border-color: #FBBF24; color: #FBBF24; }`;
 const Empty = styled.p`color: #6B5038; text-align: center; padding: 64px 0;`;
-const GoalList = styled.div`display: flex; flex-direction: column; gap: 24px;`;
+const GoalList = styled.div`display: flex; flex-direction: column; gap: 10px;`;
 
-const ParentCard = styled.div<{ status: string }>`
+const ParentCard = styled.div<{ status: string; isDragOver: boolean }>`
   background: #261A0C;
-  border: 1px solid #3E2A14;
+  border: 1px solid ${p => p.isDragOver ? '#FBBF24' : '#3E2A14'};
   border-radius: 16px;
-  padding: 24px;
   opacity: ${p => p.status === 'paused' ? 0.6 : 1};
   border-left: 3px solid #FBBF24;
+  transition: border-color 0.15s;
+  cursor: default;
+  user-select: none;
 `;
 
-const ParentTop = styled.div`display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 10px; gap: 12px;`;
-const ParentMeta = styled.div`display: flex; align-items: center; gap: 8px; flex-wrap: wrap;`;
+const CardHeader = styled.div`
+  display: flex; align-items: center; gap: 10px;
+  padding: 16px 20px; cursor: pointer;
+  &:hover { background: rgba(255,255,255,0.02); border-radius: 14px 14px 0 0; }
+`;
+
+const CardBody = styled.div`
+  padding: 0 20px 20px;
+  border-top: 1px solid #3E2A14;
+`;
+
+const DragHandle = styled.span`
+  color: #3E2A14; font-size: 1rem; cursor: grab; flex-shrink: 0; line-height: 1;
+  &:hover { color: #6B5038; }
+  &:active { cursor: grabbing; }
+`;
+
+const CollapseArrow = styled.span`
+  color: #6B5038; font-size: 0.8rem; flex-shrink: 0; width: 12px;
+`;
+
+const HeaderMain = styled.div`flex: 1; min-width: 0;`;
+
+const HeaderTitleRow = styled.div`
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 6px;
+`;
+
+const CollapsedProgress = styled.div`display: flex; align-items: center; gap: 8px;`;
+
+const ParentTitle = styled.h2`font-family: 'DM Serif Display', serif; font-size: 1.1rem; font-weight: 400; color: #F5ECD8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;`;
+const ParentMeta = styled.div`display: flex; align-items: center; gap: 6px; flex-wrap: wrap; flex-shrink: 0;`;
 const ParentActions = styled.div`display: flex; gap: 6px; flex-shrink: 0;`;
-const ParentTitle = styled.h2`font-family: 'DM Serif Display', serif; font-size: 1.25rem; font-weight: 400; color: #F5ECD8; margin-bottom: 6px;`;
-const ParentDesc = styled.p`font-size: 0.85rem; color: #8C7050; line-height: 1.6; margin-bottom: 16px;`;
+const ParentDesc = styled.p`font-size: 0.85rem; color: #8C7050; line-height: 1.6; margin: 14px 0 10px;`;
 
 const CategoryTag = styled.span`font-size: 0.7rem; color: #8C7050; text-transform: uppercase; letter-spacing: 0.05em; background: #1C1208; padding: 2px 8px; border-radius: 10px;`;
 const StatusBadge = styled.span<{ status: string }>`font-size: 0.7rem; padding: 2px 8px; border-radius: 10px; background: ${p => p.status === 'completed' ? 'rgba(251,191,36,0.12)' : p.status === 'paused' ? 'rgba(140,112,80,0.1)' : 'rgba(232,168,64,0.1)'}; color: ${p => p.status === 'completed' ? '#FBBF24' : p.status === 'paused' ? '#8C7050' : '#E8A840'};`;
@@ -416,9 +526,9 @@ const SmallBtn = styled.button<{ accent?: boolean; danger?: boolean }>`
 `;
 
 const ProgressRow = styled.div`display: flex; align-items: center; gap: 10px; margin: 12px 0 8px;`;
-const ProgressBar = styled.div`flex: 1; height: 5px; background: #3E2A14; border-radius: 3px; overflow: hidden;`;
+const ProgressBar = styled.div`flex: 1; height: 4px; background: #3E2A14; border-radius: 3px; overflow: hidden;`;
 const ProgressFill = styled.div`height: 100%; background: linear-gradient(90deg, #FBBF24, #E8A840); border-radius: 3px; transition: width 0.4s ease;`;
-const ProgressPct = styled.span`font-size: 0.8rem; font-weight: 600; color: #FBBF24; min-width: 36px;`;
+const ProgressPct = styled.span`font-size: 0.75rem; font-weight: 600; color: #FBBF24; min-width: 32px; white-space: nowrap;`;
 const ProgressNote = styled.span`font-size: 0.7rem; color: #6B5038; font-style: italic;`;
 const DueDate = styled.p`font-size: 0.75rem; color: #6B5038; margin-bottom: 12px;`;
 

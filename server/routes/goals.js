@@ -8,10 +8,23 @@ router.use(auth);
 router.get('/', async (req, res) => {
   try {
     const result = await pool.query(
-      'SELECT * FROM goals WHERE user_id = $1 ORDER BY created_at ASC',
+      'SELECT * FROM goals WHERE user_id = $1 ORDER BY sort_order ASC NULLS LAST, created_at ASC',
       [req.user.id]
     );
     res.json(result.rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/reorder', async (req, res) => {
+  const { ids } = req.body;
+  if (!Array.isArray(ids)) return res.status(400).json({ error: 'ids array required' });
+  try {
+    await Promise.all(ids.map((id, index) =>
+      pool.query('UPDATE goals SET sort_order=$1 WHERE id=$2 AND user_id=$3', [index, id, req.user.id])
+    ));
+    res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

@@ -7,15 +7,19 @@ router.use(auth);
 
 // Sections (with tasks nested)
 router.get('/sections', async (req, res) => {
+  const workspace = req.query.workspace || 'talos';
   try {
     const sections = await pool.query(
-      'SELECT * FROM talos_sections WHERE user_id=$1 ORDER BY sort_order ASC, created_at ASC',
-      [req.user.id]
+      'SELECT * FROM talos_sections WHERE user_id=$1 AND workspace=$2 ORDER BY sort_order ASC, created_at ASC',
+      [req.user.id, workspace]
     );
-    const tasks = await pool.query(
-      'SELECT * FROM talos_tasks WHERE user_id=$1 ORDER BY sort_order ASC, created_at ASC',
-      [req.user.id]
-    );
+    const sectionIds = sections.rows.map(s => s.id);
+    const tasks = sectionIds.length
+      ? await pool.query(
+          `SELECT * FROM talos_tasks WHERE user_id=$1 AND section_id = ANY($2) ORDER BY sort_order ASC, created_at ASC`,
+          [req.user.id, sectionIds]
+        )
+      : { rows: [] };
     const result = sections.rows.map(s => ({
       ...s,
       tasks: tasks.rows.filter(t => t.section_id === s.id),
@@ -27,12 +31,12 @@ router.get('/sections', async (req, res) => {
 });
 
 router.post('/sections', async (req, res) => {
-  const { title, color } = req.body;
+  const { title, color, workspace = 'talos' } = req.body;
   if (!title) return res.status(400).json({ error: 'Title required' });
   try {
     const result = await pool.query(
-      'INSERT INTO talos_sections (user_id, title, color) VALUES ($1,$2,$3) RETURNING *',
-      [req.user.id, title, color || '#FBBF24']
+      'INSERT INTO talos_sections (user_id, title, color, workspace) VALUES ($1,$2,$3,$4) RETURNING *',
+      [req.user.id, title, color || '#FBBF24', workspace]
     );
     res.status(201).json({ ...result.rows[0], tasks: [] });
   } catch (err) {

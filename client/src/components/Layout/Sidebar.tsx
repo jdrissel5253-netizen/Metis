@@ -9,6 +9,8 @@ const NAV = [
   { to: '/money', label: 'Money', icon: '◉' },
   { to: '/tasks', label: 'Tasks', icon: '◧' },
   { to: '/talos', label: 'Talos', icon: '◬' },
+  { to: '/tpoval', label: 'TPOVAL', icon: '✦' },
+  { to: '/travel', label: 'Travel', icon: '◌' },
 ];
 
 export default function Sidebar() {

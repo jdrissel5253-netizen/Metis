@@ -1,13 +1,14 @@
 const { Pool } = require('pg');
 const fs = require('fs');
 const path = require('path');
+require('dotenv').config();
 
 const pool = new Pool({
   host: 'db.cczkapthvgejyokzjjmk.supabase.co',
   port: 5432,
   database: 'postgres',
   user: 'postgres',
-  password: 'pf/DwLL7aM$v5dG',
+  password: process.env.DB_PASSWORD,
   ssl: { rejectUnauthorized: false },
 });
 

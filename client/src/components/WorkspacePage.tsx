@@ -36,7 +36,10 @@ export default function WorkspacePage({ workspace, title, subtitle }: Props) {
   const fetchSections = async () => {
     const { data } = await api.get(`/talos/sections?workspace=${workspace}`);
     setSections(data);
-    initDone.current = true;
+    if (!initDone.current) {
+      setCollapsed(new Set(data.map((s: TalosSection) => s.id)));
+      initDone.current = true;
+    }
   };
 
   useEffect(() => {
@@ -135,68 +138,76 @@ export default function WorkspacePage({ workspace, title, subtitle }: Props) {
         </EmptyState>
       )}
 
-      <SectionList>
-        {sections.map(section => {
-          const isCollapsed = collapsed.has(section.id);
-          const completedCount = section.tasks.filter(t => t.completed).length;
-          const pendingTasks = section.tasks.filter(t => !t.completed);
-          const completedTasks = section.tasks.filter(t => t.completed);
+      <TwoColumnGrid>
+        {[
+          sections.slice(0, Math.ceil(sections.length / 2)),
+          sections.slice(Math.ceil(sections.length / 2)),
+        ].map((columnSections, colIdx) => (
+          <SectionList key={colIdx}>
+            {columnSections
+              .map(section => {
+                const isCollapsed = collapsed.has(section.id);
+                const completedCount = section.tasks.filter(t => t.completed).length;
+                const pendingTasks = section.tasks.filter(t => !t.completed);
+                const completedTasks = section.tasks.filter(t => t.completed);
 
-          return (
-            <SectionCard key={section.id} color={section.color}>
-              <SectionHeader onClick={() => toggleCollapse(section.id)}>
-                <SectionLeft>
-                  <CollapseArrow>{isCollapsed ? '▸' : '▾'}</CollapseArrow>
-                  <ColorDot color={section.color} />
-                  <SectionTitle>{section.title}</SectionTitle>
-                  <TaskCount>
-                    {section.tasks.length} task{section.tasks.length !== 1 ? 's' : ''}
-                    {completedCount > 0 ? ` · ${completedCount} done` : ''}
-                  </TaskCount>
-                </SectionLeft>
-                <SectionActions onClick={e => e.stopPropagation()}>
-                  {completedCount > 0 && (
-                    <ClearBtn onClick={() => handleClearCompleted(section.id)}>Clear done</ClearBtn>
-                  )}
-                  <IconBtn onClick={() => setEditingSection({ ...section })}>✎</IconBtn>
-                  <IconBtn danger onClick={() => handleDeleteSection(section.id)}>✕</IconBtn>
-                </SectionActions>
-              </SectionHeader>
+                return (
+                  <SectionCard key={section.id} color={section.color}>
+                    <SectionHeader onClick={() => toggleCollapse(section.id)}>
+                      <SectionLeft>
+                        <CollapseArrow>{isCollapsed ? '▸' : '▾'}</CollapseArrow>
+                        <ColorDot color={section.color} />
+                        <SectionTitle>{section.title}</SectionTitle>
+                        <TaskCount>
+                          {section.tasks.length} task{section.tasks.length !== 1 ? 's' : ''}
+                          {completedCount > 0 ? ` · ${completedCount} done` : ''}
+                        </TaskCount>
+                      </SectionLeft>
+                      <SectionActions onClick={e => e.stopPropagation()}>
+                        {completedCount > 0 && (
+                          <ClearBtn onClick={() => handleClearCompleted(section.id)}>Clear done</ClearBtn>
+                        )}
+                        <IconBtn onClick={() => setEditingSection({ ...section })}>✎</IconBtn>
+                        <IconBtn danger onClick={() => handleDeleteSection(section.id)}>✕</IconBtn>
+                      </SectionActions>
+                    </SectionHeader>
 
-              {!isCollapsed && (
-                <SectionBody>
-                  <TaskList>
-                    {pendingTasks.map(task => (
-                      <TaskRow key={task.id}>
-                        <TaskCheck checked={false} onClick={() => handleToggleTask(task)} />
-                        <TaskTitle done={false}>{task.title}</TaskTitle>
-                        <TaskDel onClick={() => handleDeleteTask(task.id)}>✕</TaskDel>
-                      </TaskRow>
-                    ))}
-                    {completedTasks.map(task => (
-                      <TaskRow key={task.id} faded>
-                        <TaskCheck checked color={section.color} onClick={() => handleToggleTask(task)} />
-                        <TaskTitle done>{task.title}</TaskTitle>
-                        <TaskDel onClick={() => handleDeleteTask(task.id)}>✕</TaskDel>
-                      </TaskRow>
-                    ))}
-                  </TaskList>
+                    {!isCollapsed && (
+                      <SectionBody>
+                        <TaskList>
+                          {pendingTasks.map(task => (
+                            <TaskRow key={task.id}>
+                              <TaskCheck checked={false} onClick={() => handleToggleTask(task)} />
+                              <TaskTitle done={false}>{task.title}</TaskTitle>
+                              <TaskDel onClick={() => handleDeleteTask(task.id)}>✕</TaskDel>
+                            </TaskRow>
+                          ))}
+                          {completedTasks.map(task => (
+                            <TaskRow key={task.id} faded>
+                              <TaskCheck checked color={section.color} onClick={() => handleToggleTask(task)} />
+                              <TaskTitle done>{task.title}</TaskTitle>
+                              <TaskDel onClick={() => handleDeleteTask(task.id)}>✕</TaskDel>
+                            </TaskRow>
+                          ))}
+                        </TaskList>
 
-                  <TaskInputRow>
-                    <TaskInput
-                      placeholder="Add a task... (Enter to save)"
-                      value={newTaskText[section.id] || ''}
-                      onChange={e => setNewTaskText(prev => ({ ...prev, [section.id]: e.target.value }))}
-                      onKeyDown={e => e.key === 'Enter' && handleAddTask(section.id)}
-                    />
-                    <TaskAddBtn color={section.color} onClick={() => handleAddTask(section.id)}>+</TaskAddBtn>
-                  </TaskInputRow>
-                </SectionBody>
-              )}
-            </SectionCard>
-          );
-        })}
-      </SectionList>
+                        <TaskInputRow>
+                          <TaskInput
+                            placeholder="Add a task... (Enter to save)"
+                            value={newTaskText[section.id] || ''}
+                            onChange={e => setNewTaskText(prev => ({ ...prev, [section.id]: e.target.value }))}
+                            onKeyDown={e => e.key === 'Enter' && handleAddTask(section.id)}
+                          />
+                          <TaskAddBtn color={section.color} onClick={() => handleAddTask(section.id)}>+</TaskAddBtn>
+                        </TaskInputRow>
+                      </SectionBody>
+                    )}
+                  </SectionCard>
+                );
+              })}
+          </SectionList>
+        ))}
+      </TwoColumnGrid>
 
       {showAddSection && (
         <Modal onClick={() => setShowAddSection(false)}>
@@ -246,7 +257,7 @@ export default function WorkspacePage({ workspace, title, subtitle }: Props) {
 }
 
 // ── Styles ──
-const Page = styled.div`padding: 40px 48px; max-width: 860px; @media (max-width: 768px) { padding: 24px 16px; }`;
+const Page = styled.div`padding: 40px 48px; max-width: 1400px; @media (max-width: 768px) { padding: 24px 16px; }`;
 const PageHeader = styled.div`display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px; gap: 16px;`;
 const HeaderLeft = styled.div``;
 const HeaderRight = styled.div`display: flex; align-items: center; gap: 16px;`;
@@ -263,6 +274,13 @@ const ProgressPct = styled.span`font-size: 0.78rem; color: #8C7050; white-space:
 const EmptyState = styled.div`text-align: center; padding: 80px 40px;`;
 const EmptyTitle = styled.h2`font-family: 'DM Serif Display', serif; font-size: 1.4rem; font-weight: 400; color: #F5ECD8; margin-bottom: 10px;`;
 const EmptyDesc = styled.p`font-size: 0.88rem; color: #6B5038; line-height: 1.6; margin-bottom: 24px; max-width: 420px; margin-left: auto; margin-right: auto;`;
+const TwoColumnGrid = styled.div`
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  align-items: start;
+  @media (max-width: 900px) { grid-template-columns: 1fr; }
+`;
 const SectionList = styled.div`display: flex; flex-direction: column; gap: 12px;`;
 const SectionCard = styled.div<{ color: string }>`background: #261A0C; border: 1px solid #3E2A14; border-radius: 14px; border-left: 3px solid ${p => p.color}; overflow: hidden;`;
 const SectionHeader = styled.div`display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px 20px; cursor: pointer; &:hover { background: rgba(255,255,255,0.02); }`;

@@ -8,6 +8,7 @@ const NAV = [
   { to: '/goals', label: 'Goals', icon: '◎' },
   { to: '/money', label: 'Money', icon: '◉' },
   { to: '/tasks', label: 'Tasks', icon: '◧' },
+  { to: '/schedule', label: 'Schedule', icon: '◷' },
   { to: '/talos', label: 'Talos', icon: '◬' },
   { to: '/tpoval', label: 'TPOVAL', icon: '✦' },
   { to: '/travel', label: 'Travel', icon: '◌' },

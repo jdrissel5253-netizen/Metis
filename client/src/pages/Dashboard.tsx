@@ -47,6 +47,7 @@ export default function Dashboard() {
           Good {getTimeOfDay()}, <span>{user?.name?.split(' ')[0]}</span>
         </Greeting>
         <DateDisplay>{format(today, 'EEEE, MMMM d')}</DateDisplay>
+        <ScheduleLink to="/schedule">View today's schedule →</ScheduleLink>
       </Header>
 
       <SummaryRow>
@@ -146,6 +147,14 @@ const Greeting = styled.h1`
 `;
 
 const DateDisplay = styled.p`color: #8C7050; font-size: 0.9rem;`;
+
+const ScheduleLink = styled(Link)`
+  display: inline-block;
+  margin-top: 8px;
+  font-size: 0.85rem;
+  color: #FBBF24;
+  &:hover { text-decoration: underline; }
+`;
 
 const SummaryRow = styled.div`
   display: grid;

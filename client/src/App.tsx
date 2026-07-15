@@ -10,6 +10,7 @@ const Dashboard = lazy(() => import('./pages/Dashboard'));
 const Goals = lazy(() => import('./pages/Goals'));
 const Money = lazy(() => import('./pages/Money'));
 const Tasks = lazy(() => import('./pages/Tasks'));
+const Schedule = lazy(() => import('./pages/Schedule'));
 const Talos = lazy(() => import('./pages/Talos'));
 const TPOVAL = lazy(() => import('./pages/TPOVAL'));
 const Travel = lazy(() => import('./pages/Travel'));
@@ -50,6 +51,7 @@ export default function App() {
               <Route path="/goals" element={<Goals />} />
               <Route path="/money" element={<Money />} />
               <Route path="/tasks" element={<Tasks />} />
+              <Route path="/schedule" element={<Schedule />} />
               <Route path="/talos" element={<Talos />} />
               <Route path="/tpoval" element={<TPOVAL />} />
               <Route path="/travel" element={<Travel />} />
